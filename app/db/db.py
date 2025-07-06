@@ -1,25 +1,52 @@
-# app/db.py
+from azure.cosmos import CosmosClient, PartitionKey
+from dotenv import load_dotenv
+import os
 
-from tinydb import TinyDB, Query
-from pathlib import Path
+load_dotenv()
 
-# === DB Setup ===
-DB_PATH = Path("app/db/metadata.json")
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-db = TinyDB(DB_PATH)
-docs_table = db.table("documents")
+# === Cosmos DB Setup ===
+COSMOS_CONNECTION_STRING = os.getenv("COSMOS_CONNECTION_STRING")
+COSMOS_DB_NAME = os.getenv("COSMOS_DB_NAME")
+COSMOS_CONTAINER_NAME = os.getenv("COSMOS_CONTAINER_NAME")
 
+client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
+database = client.create_database_if_not_exists(id=COSMOS_DB_NAME)
+container = database.create_container_if_not_exists(
+    id=COSMOS_CONTAINER_NAME,
+    partition_key=PartitionKey(path="/user_id"),
+    offer_throughput=400
+)
 
+# === Save metadata ===
 def save_metadata(data: dict):
-    docs_table.insert(data)
+    try:
+        # Ensure fields are JSON-safe (no custom number formats)
+        if "tags" in data and isinstance(data["tags"], dict):
+            try:
+                data["tags"]["price"] = float(data["tags"].get("price", 0.0))
+            except:
+                data["tags"]["price"] = 0.0
 
+        container.create_item(body=data)
+    except Exception as e:
+        print(f"[DB] Error saving metadata: {e}")
 
+# === Check if file already processed ===
 def was_already_processed(blob_path: str) -> bool:
-    Document = Query()
-    result = docs_table.search(Document.original_blob_name == blob_path)
-    return len(result) > 0
+    query = "SELECT * FROM c WHERE c.original_blob_name = @blob_path"
+    items = list(container.query_items(
+        query=query,
+        parameters=[{"name": "@blob_path", "value": blob_path}],
+        enable_cross_partition_query=True
+    ))
+    return len(items) > 0
 
-
-def get_user_docs(user_directory: str) -> list[dict]:
-    Document = Query()
-    return docs_table.search(Document.user_directory == user_directory)
+# === Get all docs for a user ===
+def get_user_docs(user_id: str) -> list[dict]:
+    query = "SELECT * FROM c WHERE c.user_id = @user_id"
+    items = list(container.query_items(
+        query=query,
+        parameters=[{"name": "@user_id", "value": user_id}],
+        enable_cross_partition_query=True
+    ))
+    return items
