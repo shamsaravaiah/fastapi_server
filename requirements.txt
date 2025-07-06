@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+tinydb
+python-dotenv
+google-cloud-vision
+google-generativeai
+azure-storage-blob
+pymupdf
