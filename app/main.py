@@ -19,6 +19,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/")
+async def root():
+    return {"message": "FastAPI backend is running."}
+
 # === POST: Upload one or more files ===
 @app.post("/upload/")
 async def upload_files(
