@@ -84,50 +84,61 @@ def run_ocr(file_bytes: bytes, ext: str) -> str:
         return res.text_annotations[0].description.strip() if res.text_annotations else "No text"
 
 # === Gemini LLM Tagging ===
-def extract_tags(ocr_text: str) -> dict[str, str]:
-    santized_text = sanitize_ocr(ocr_text)
-    prompt = f"""
-You are a strict data extractor. Given a raw receipt text, extract exactly this information:
+def extract_tags(ocr_text: str) -> tuple[dict[str, str], str]:
+    sanitized_text = sanitize_ocr(ocr_text)
 
+    prompt = f"""
+You are a strict receipt analyst.
+
+Step 1: From the receipt text, extract these fields:
 - "vendor": Store name
 - "product_or_service": A comma-separated list of purchased items
-- "price": Total paid amount in SEK as a number (float)
+- "price": Total amount in SEK (float)
+- "date": The date of purchase in YYYY-MM-DD format, if available. Else "Unknown".
 
-Do not guess or invent any information.
-Only use what is explicitly visible in the receipt text.
-If any field is missing, return "Unknown" or 0.
+Step 2: Write a short natural language summary using the structure:
+"This is a receipt from [vendor] for [price] SEK on [date]. The items purchased include [product_or_service]."
 
-Return only valid JSON in this format:
+Rules:
+- Do NOT guess or invent missing data.
+- If any field is unknown, say so.
+- Output valid JSON in the following format:
+
 {{
-  "vendor": "...",
-  "product_or_service": "...",
-  "price": ...
+  "tags": {{
+    "vendor": "...",
+    "product_or_service": "...",
+    "price": ...,
+    "date": "..."
+  }},
+  "summary": "..."
 }}
 
 Here is the receipt text:
-\"\"\"{santized_text}\"\"\"
+\"\"\"{sanitized_text}\"\"\"
 """
-
 
     try:
         model = genai.GenerativeModel("gemini-1.5-pro")
         output = model.generate_content(prompt)
         response_text = output.text.strip()
 
-        # Try to extract JSON block from anywhere in the output
         json_start = response_text.find("{")
         json_end = response_text.rfind("}") + 1
         cleaned_json = response_text[json_start:json_end]
 
-        return json.loads(cleaned_json)
-
+        parsed = json.loads(cleaned_json)
+        return parsed.get("tags", {}), parsed.get("summary", "")
+    
     except Exception as e:
         print(f"[extract_tags error] {e}")
         return {
             "vendor": "Unknown",
             "product_or_service": "Unknown",
-            "price": 0.0
-        }
+            "price": 0.0,
+            "date": "Unknown"
+        }, "Summary unavailable due to parsing error."
+
     
 # === Main Pipeline Logic ===
 async def process_file(file, user_id: str, user_directory: str) -> dict | None:
@@ -146,7 +157,7 @@ async def process_file(file, user_id: str, user_directory: str) -> dict | None:
         return None
 
     ocr = run_ocr(file_bytes, ext)
-    tags = extract_tags(ocr)
+    tags, summary = extract_tags(ocr)
 
     # === Format price ===
     try:
@@ -166,8 +177,9 @@ async def process_file(file, user_id: str, user_directory: str) -> dict | None:
         "original_filename": file.filename,
         "timestamp": time.time(),
         "status": "tagged",
-        "tags": tags
-}
+        "tags": tags,
+        "summary": summary   
+    }
 
 
     return metadata

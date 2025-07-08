@@ -7,6 +7,7 @@ from typing import List
 
 from app.pipeline import process_file
 from app.db import save_metadata, get_user_docs
+from app.db import get_summary_by_job
 
 app = FastAPI()
 
@@ -51,5 +52,18 @@ async def get_documents(user_id: str = Query(...)):
     try:
         documents = get_user_docs(user_id)
         return {"status": "success", "documents": documents}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+    
+
+    # === GET: Specific summary for a document belonging to a specific user ===
+@app.get("/summary/{job_id}")
+async def get_summary_for_document(job_id: str, user_id: str = Query(...)):
+    try:
+        summary_data = get_summary_by_job(user_id=user_id, job_id=job_id)
+        if summary_data:
+            return {"status": "success", "summary": summary_data}
+        else:
+            return {"status": "not_found", "detail": "No matching document or summary found."}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
