@@ -1,6 +1,8 @@
 from azure.cosmos import CosmosClient, PartitionKey
 from dotenv import load_dotenv
 import os
+from pathlib import Path
+
 
 load_dotenv()
 
@@ -50,3 +52,18 @@ def get_user_docs(user_id: str) -> list[dict]:
         enable_cross_partition_query=True
     ))
     return items
+
+# === Get document summaries ===
+
+def get_summary_by_job(user_id: str, job_id: str):
+    docs = get_user_docs(user_id)  # This already filters by user_id
+    for doc in docs:
+        if doc.get("job_id") == job_id:
+            return {
+                "job_id": doc.get("job_id"),
+                "user_id": doc.get("user_id"),
+                "user_directory": doc.get("user_directory"),
+                "filename": Path(doc.get("original_blob_name", "")).name,
+                "summary": doc.get("summary", "No summary available.")
+            }
+    return None
